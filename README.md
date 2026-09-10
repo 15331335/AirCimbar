@@ -182,6 +182,29 @@ test/                   验证套件
 
 每个 wasm 实例会预留 128 MB 堆，所以 worker 数量是有意压低的（默认 3 个扫描 + 1 个 sink）。
 
+### 已知限制：iOS 独立模式可能读不到缓存（Apple 侧问题）
+
+有报告指出 iOS 18 起，**添加到主屏幕后的独立模式（standalone）完全不做 Service Worker
+缓存**，而同一个站点在 Safari 里离线却正常：[SO #79375555](https://stackoverflow.com/questions/79375555)
+（该问题至今无解）。[SO #60689146](https://stackoverflow.com/questions/60689146) 也是同样的症状。
+
+这个项目自身的缓存逻辑是**对的**，已实测验证：加载一次后，Cache Storage 里有全部 14 个文件
+（含 1.9 MB 的 wasm），关掉服务器再重载，页面、脚本和 wasm 都照常从缓存取出
+（`node test/sw-update.mjs`）。所以如果手机上独立模式打不开，那是 WebKit 没有把
+Service Worker 用在独立模式上，不是缓存没写进去。
+
+**怎么判断属于哪种情况：**
+
+1. 页脚会直接告诉你状态：
+   * `离线就绪 · 已缓存 14 项 · aircimbar-v6` → 缓存完整，问题在独立模式
+   * `缓存不完整（缺 N 项）` → 还没缓存全，联网重开一次
+   * `未缓存（需联网加载）` → Service Worker 没有接管
+2. 开飞行模式，用 **Safari 直接打开网址**（不要点主屏幕图标）。能打开就说明
+   Service Worker 正常，问题只出在独立模式。
+
+**绕不过去时用原生 App** —— 它把所有资源打包进 IPA，完全不依赖 Service Worker，
+因此这个 iOS 缺陷影响不到它。见 [`native/README.md`](native/README.md)。
+
 ### 一个踩过的坑：缓存优先的 Service Worker 把更新锁死了
 
 一开始 `sw.js` 对所有资源都是 cache-first，结果是**装上之后再改任何东西，手机都拿不到** ——
@@ -288,6 +311,7 @@ node tools/sync-web.mjs --check                      # 包内 web/ 是否与 app
 * 发送端长时间广播会比较费电、发热。
 * **原生 App 需要侧载** —— 免费 Apple ID 签名的有效期是 7 天，过期后重新侧载一次即可
   （App 数据不丢）。详见 [`native/README.md`](native/README.md)。
+* **iOS 18+ 的「主屏幕独立模式」可能完全不走 Service Worker 缓存** —— 见下。
 
 ---
 

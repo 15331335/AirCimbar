@@ -24,7 +24,24 @@
 /* Names the cache and drives purging of older ones. Bumping it is no longer
    required for updates to be picked up — network-first handles that — but it
    remains the cleanest way to drop everything at once. */
-var VERSION = 'aircimbar-v5';
+var VERSION = 'aircimbar-v6';
+
+/* The subset the app cannot boot without. If any of these cannot be cached the
+   install must FAIL rather than leave a half-populated cache behind — and
+   critically, activate() must not delete the previous (working) cache. */
+var CORE = [
+  './',
+  './index.html',
+  './css/app.css',
+  './js/cimbar.js',
+  './js/send.js',
+  './js/recv.js',
+  './js/import.js',
+  './js/ui.js',
+  './js/cimbar-worker.js',
+  './vendor/cimbar_js.js',
+  './vendor/cimbar_js.wasm',
+];
 
 var ASSETS = [
   './',
@@ -46,21 +63,45 @@ var ASSETS = [
 self.addEventListener('install', function (e) {
   e.waitUntil(
     caches.open(VERSION).then(function (c) {
-      /* best-effort per file: one missing optional asset must not abort the
-         whole install */
       return Promise.all(ASSETS.map(function (u) {
-        return c.add(new Request(u, { cache: 'reload' })).catch(function () { });
+        return c.add(new Request(u, { cache: 'reload' })).catch(function () {
+          /* optional assets (sizes of icon nobody asked for) may be absent.
+             A core asset failing aborts the install, which leaves the previous
+             service worker and its cache untouched — far better than
+             activating an empty cache and losing offline entirely. */
+          if (CORE.indexOf(u) >= 0) throw new Error('core asset not cached: ' + u);
+        });
       }));
     }).then(function () { return self.skipWaiting(); })
   );
 });
 
+/** true when every core asset is present in the current cache */
+function coreComplete() {
+  return caches.open(VERSION).then(function (c) {
+    return c.keys().then(function (keys) {
+      var have = {};
+      keys.forEach(function (k) { have[new URL(k.url).pathname] = true; });
+      var missing = CORE.filter(function (u) {
+        return !have[u.replace(/^\./, '')];
+      });
+      return { complete: missing.length === 0, missing: missing, cached: keys.length };
+    });
+  }).catch(function () {
+    return { complete: false, missing: CORE, cached: 0 };
+  });
+}
+
 self.addEventListener('activate', function (e) {
   e.waitUntil(
-    caches.keys().then(function (keys) {
-      return Promise.all(keys.map(function (k) {
-        return k === VERSION ? null : caches.delete(k);
-      }));
+    coreComplete().then(function (state) {
+      /* Only prune the old caches once we know the new one can stand alone. */
+      if (!state.complete) return null;
+      return caches.keys().then(function (keys) {
+        return Promise.all(keys.map(function (k) {
+          return k === VERSION ? null : caches.delete(k);
+        }));
+      });
     }).then(function () { return self.clients.claim(); })
   );
 });
@@ -70,9 +111,16 @@ self.addEventListener('activate', function (e) {
    stale cache" — the exact confusion this app kept causing. */
 self.addEventListener('message', function (e) {
   var port = e.ports && e.ports[0];
-  if (e.data && e.data.type === 'version' && port) {
-    port.postMessage({ version: VERSION });
-  }
+  if (!port || !e.data || e.data.type !== 'version') return;
+  coreComplete().then(function (state) {
+    port.postMessage({
+      version: VERSION,
+      cached: state.cached,
+      total: ASSETS.length,
+      missing: state.missing,
+      offlineReady: state.complete,
+    });
+  });
 });
 
 function put(req, res) {

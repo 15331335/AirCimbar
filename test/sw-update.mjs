@@ -189,6 +189,27 @@ try {
   if (typeof shown !== 'string' || shown.indexOf('aircimbar-v') === -1) {
     problems.push('页面没有显示缓存版本号（得到 ' + shown + '）');
   }
+  if (typeof shown === 'string' && shown.indexOf('离线就绪') === -1) {
+    problems.push('页面没有报告离线就绪（得到 ' + shown + '）');
+  }
+
+  /* every core asset must actually be in the cache, not just claimed */
+  const cacheState = await evaluate(`(async () => {
+    const names = await caches.keys();
+    const out = {};
+    for (const n of names) {
+      const c = await caches.open(n);
+      out[n] = (await c.keys()).map(k => new URL(k.url).pathname);
+    }
+    return JSON.stringify(out);
+  })()`);
+  const cachesByName = JSON.parse(cacheState || '{}');
+  const entries = Object.values(cachesByName).flat();
+  const required = ['/index.html', '/css/app.css', '/js/ui.js', '/js/cimbar-worker.js',
+                    '/vendor/cimbar_js.js', '/vendor/cimbar_js.wasm'];
+  const absent = required.filter((r) => !entries.includes(r));
+  console.log(`[sw] 缓存条目共 ${entries.length} 项，缺失核心 ${absent.length} 项`);
+  if (absent.length) problems.push('缓存里缺少核心文件: ' + absent.join(', '));
 
   /* ---- phase 3: switch the server off; the app must still open ---- */
   console.log('[sw] 关闭服务器，测试离线打开…');

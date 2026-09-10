@@ -627,8 +627,15 @@
     try {
       var ch = new MessageChannel();
       ch.port1.onmessage = function (ev) {
-        var v = ev.data && ev.data.version;
-        el.textContent = v ? ('已缓存 · ' + v) : '已缓存';
+        var d = ev.data || {};
+        if (!d.version) { el.textContent = '已缓存'; return; }
+        if (d.offlineReady) {
+          el.textContent = '离线就绪 · 已缓存 ' + d.cached + ' 项 · ' + d.version;
+        } else {
+          var miss = (d.missing || []).length;
+          el.textContent = '缓存不完整（缺 ' + miss + ' 项）· ' + d.version +
+            ' —— 请联网重开一次';
+        }
       };
       sw.controller.postMessage({ type: 'version' }, [ch.port2]);
       setTimeout(function () {
