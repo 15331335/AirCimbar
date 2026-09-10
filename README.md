@@ -31,26 +31,45 @@ iOS 只在**安全上下文（HTTPS）**下才允许网页调用摄像头，所�
 
 ```sh
 cd AirCimbar
-node serve.mjs                 # 默认 https://<本机>:8443，自动使用 ../certs 的 linyango.cn 证书
+python3 tools/make-local-ca.py     # 一次性：生成本机 CA + 服务器证书（SAN 含本机局域网 IP）
+node serve.mjs                     # https://<本机局域网IP>:8443
 ```
 
-终端会打印出可用的地址，例如：
+终端会打印出手机关访问的地址和下面这套安装步骤。
 
-```
-https://localhost:8443/                     在本机浏览器测试
-https://192.168.1.102:8443/                 同一 Wi-Fi 下的 iPhone
-https://linyango.cn:8443/                   有域名证书，最省事（需把 8443 转发到本机）
-```
+### 让 iPhone 信任本机证书（只做一次，之后永不弹警告）
 
-在 iPhone 上用 **Safari** 打开上面的地址，然后：
+用 IP 访问时，如果证书不是签发给这个 IP 的，iOS 会弹「此连接非私人连接」。
+这个警告**在从主屏幕图标冷启动 PWA 时可能每次都会出现**，会让「像 App 一样」的体验彻底破功。
+所以用自建 CA 一次性解决：
 
-1. 点底部分享按钮 → **添加到主屏幕**
-2. 从主屏幕启动 AirCimbar，它会全屏运行，和原生 App 一样
-3. 首次点「开始扫描」时允许摄像头权限
+1. 手机上用 Safari 打开 `https://192.168.1.102:8443/aircimbar-ca.mobileconfig`
+   （这一步会先弹一次证书警告，点「显示详细信息 → 访问此网站」继续）
+2. **设置 → 通用 → VPN与设备管理** → 安装该描述文件
+3. **设置 → 通用 → 关于本机 → 证书信任设置** → 打开 **AirCimbar Local CA** 的开关
+4. 再打开 `https://192.168.1.102:8443/` —— 不再有任何警告
 
-> 用 IP 访问时 Safari 会提示证书不受信任（证书签发给 `linyango.cn`）。
-> 点「显示详细信息 → 访问此网站」即可，之后摄像头和离线缓存都正常工作。
-> 想彻底避免这个提示，就把 8443 端口转发到本机并用 `https://linyango.cn:8443/` 访问。
+`make-local-ca.py` 生成的东西（都在 `certs/`，已 gitignore）：
+
+| 文件 | 用途 |
+| --- | --- |
+| `aircimbar-ca.pem` / `.key` | 本机根 CA（私钥不出本机） |
+| `aircimbar-local.pem` / `.key` | 服务器证书，SAN 含 `192.168.1.102` + `127.0.0.1` + `localhost` |
+| `aircimbar-ca.mobileconfig` | 给 iPhone 安装的描述文件，由 `serve.mjs` 在 `/aircimbar-ca.mobileconfig` 提供 |
+
+CA 有效期 10 年，服务器证书默认 825 天（iOS 对 TLS 证书的上限）。
+换 Wi-Fi 导致本机 IP 变了，重跑一次 `make-local-ca.py` 并在手机上重装描述文件即可。
+如果想在手机上也用域名访问，可以加 `--name your-host.local` 把它写进 SAN。
+
+> 没有自建 CA 也能跑：`serve.mjs` 会自动回退到 `certs/linyango.cn.*`（如果存在），
+> 只是仍会有证书警告。
+
+### 添加到主屏幕
+
+1. Safari 打开 `https://<本机IP>:8443/`，点底部分享按钮 → **添加到主屏幕**
+2. **先在有网状态下打开一两次**，让 Service Worker 把全部资源（含 1.9 MB 的 wasm）缓存下来
+3. 之后即使关掉电脑、断网、开飞行模式，从主屏幕启动依然完全可用
+4. 首次点「开始扫描」时允许摄像头权限
 
 ---
 
@@ -140,6 +159,17 @@ test/                   验证套件
 
 每个 wasm 实例会预留 128 MB 堆，所以 worker 数量是有意压低的（默认 3 个扫描 + 1 个 sink）。
 
+### 另一个踩过的坑：证书警告页仍然是安全上下文
+
+这是自建 HTTPS 的 PWA 最关键的未知数：**点过「继续访问」之后，摄像头还能用吗？**
+答案是能。我用真实 WebKit（iOS Safari 同一个引擎）加载了一个自签名证书的 HTTPS 页面、
+按「继续访问」的方式接受了证书，然后在页面里读 `window.isSecureContext` —— 结果是 `true`，
+`serviceWorker` 和 `crypto.subtle` 也都在。安全上下文的判定只看 scheme 和 host，不看证书是否受信任。
+
+复现方式：`test/secure-context/main.swift`。
+
+所以证书警告不会让摄像头失效，**但它会在每次冷启动时出现**，这才是要装 CA 的真正理由。
+
 ### 一个踩过的坑：不要用浏览器的原生 VideoFrame
 
 `recv.js` 抓帧**故意**走 canvas 2D → RGBA，而不是把浏览器给的 `VideoFrame`（NV12/I420）
@@ -175,6 +205,9 @@ node test/swift-typecheck.mjs                        # 原生 Swift 全量类型
 node test/native-smoke.mjs                           # 编译并运行 回环服务器 + WKWebView
 node tools/sync-web.mjs --check                      # 包内 web/ 是否与 app/ 同步
 ```
+
+（`test/secure-context/main.swift` 是上面那个证书/安全上下文探针，需手动编译：
+`swiftc -O -module-cache-path /tmp/mc -o /tmp/secctx test/secure-context/main.swift`）
 
 已验证的结论（全部**字节级一致**）：
 

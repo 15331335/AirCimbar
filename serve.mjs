@@ -37,6 +37,14 @@ function findCert() {
   const explicitKey = arg('key', null);
   if (explicitCert && explicitKey) return { cert: explicitCert, key: explicitKey };
 
+  const local = {
+    cert: path.join(here, 'certs', 'aircimbar-local.pem'),
+    key: path.join(here, 'certs', 'aircimbar-local.key'),
+  };
+  // Preferred: our own CA, whose SAN actually contains this machine's LAN IP,
+  // so the phone sees no certificate warning at all.
+  if (fs.existsSync(local.cert) && fs.existsSync(local.key)) return local;
+
   const candidates = [
     { dir: path.join(here, 'certs'), base: 'linyango.cn' },
     { dir: path.join(here, '..', 'certs'), base: 'linyango.cn' },
@@ -49,6 +57,8 @@ function findCert() {
   }
   return null;
 }
+
+const CA_PROFILE = path.join(here, 'certs', 'aircimbar-ca.mobileconfig');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -73,6 +83,31 @@ function handler(req, res) {
   } catch {
     res.writeHead(400); return res.end('bad request');
   }
+
+  const peer = (req.socket.remoteAddress || '?').replace(/^::ffff:/, '');
+  const started = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - started;
+    console.log(`  ${peer.padEnd(15)} ${String(res.statusCode).padEnd(4)} ${req.method.padEnd(4)} ${rel}  ${ms}ms`);
+  });
+
+  /* The iPhone needs the local CA to trust this server. Handing it out here
+     means the whole setup can be done from the phone's browser. iOS wants
+     this exact content type to offer the profile installer. */
+  if (rel === '/aircimbar-ca.mobileconfig') {
+    if (!fs.existsSync(CA_PROFILE)) {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+      return res.end('还没有生成描述文件，请先在电脑上运行：\n\n  python3 tools/make-local-ca.py\n');
+    }
+    const body = fs.readFileSync(CA_PROFILE);
+    res.writeHead(200, {
+      'content-type': 'application/x-apple-aspen-config',
+      'content-length': body.length,
+      'content-disposition': 'attachment; filename="aircimbar-ca.mobileconfig"',
+    });
+    return res.end(body);
+  }
+
   if (rel === '/') rel = '/index.html';
 
   const file = path.normalize(path.join(appDir, rel));
@@ -109,10 +144,11 @@ function lanAddresses() {
 }
 
 let server;
+let c = null;
 if (USE_HTTP) {
   server = http.createServer(handler);
 } else {
-  const c = findCert();
+  c = findCert();
   if (!c) {
     console.error('✗ 找不到 TLS 证书。请用 --cert/--key 指定，或先用 --http（iPhone 摄像头将不可用）。');
     process.exit(1);
@@ -132,22 +168,30 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('  在本机打开:');
   console.log(`    ${scheme}://localhost:${PORT}/`);
-  if (lan.length) {
-    console.log('');
-    console.log('  在 iPhone 上打开:');
-    for (const l of lan) console.log(`    ${scheme}://${l.address}:${PORT}/   (${l.name})`);
-    if (!USE_HTTP) {
-      console.log('');
-      console.log('  证书签发给 linyango.cn，用 IP 访问会提示证书不受信任。两种做法:');
-      console.log(`    a) 用域名访问: ${scheme}://linyango.cn:${PORT}/  （需路由器把 ${PORT} 端口转发到本机 ${lan[0].address}）`);
-      console.log('    b) 用 IP 访问并在 Safari 中「显示详细信息 → 访问此网站」，之后摄像头同样可用');
-    }
-  } else {
-    console.log('  (未检测到局域网地址)');
-  }
+
   if (USE_HTTP) {
     console.log('');
     console.log('  ⚠ http 模式下 iPhone 无法调用摄像头（非安全上下文），仅用于桌面调试。');
+  } else if (lan.length) {
+    const ip = lan[0].address;
+    const usingLocalCa = !!(c && c.cert.includes('aircimbar-local'));
+    console.log('');
+    console.log('  在 iPhone 上打开:');
+    for (const l of lan) console.log(`    ${scheme}://${l.address}:${PORT}/   (${l.name})`);
+    console.log('');
+    if (usingLocalCa && fs.existsSync(CA_PROFILE)) {
+      console.log('  第一次要在手机上装一次证书，之后永不弹警告:');
+      console.log(`    1. 手机浏览器打开  ${scheme}://${ip}:${PORT}/aircimbar-ca.mobileconfig`);
+      console.log('       （这一步会先弹一次证书警告，点「显示详细信息 → 访问此网站」继续）');
+      console.log('    2. 设置 → 通用 → VPN与设备管理 → 安装该描述文件');
+      console.log('    3. 设置 → 通用 → 关于本机 → 证书信任设置 → 打开 AirCimbar Local CA 的开关');
+      console.log(`    4. 再打开 ${scheme}://${ip}:${PORT}/ ，不再有任何警告`);
+    } else {
+      console.log('  当前使用的证书不是本机 CA。还想彻底去掉警告的话:');
+      console.log('    python3 tools/make-local-ca.py && node serve.mjs');
+    }
+  } else {
+    console.log('  (未检测到局域网地址)');
   }
   console.log('');
 });
