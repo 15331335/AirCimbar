@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>record barcode video</title></head>
+<body>
+<!-- Renders barcode frames with the real sender module, paints them into a
+     scene canvas and records that canvas with MediaRecorder, producing a
+     screen-recording stand-in for the import decoder to chew on. -->
+<canvas id="stage" width="1040" height="1040"></canvas>
+<pre id="out">booting…</pre>
+<script src="js/cimbar.js"></script>
+<script src="js/send.js"></script>
+<script>
+const qs = new URLSearchParams(location.search);
+const MODE = parseInt(qs.get('mode') || '68', 10);
+const SIZE = parseInt(qs.get('size') || '4096', 10);
+const FRAMES = parseInt(qs.get('frames') || '12', 10);
+const SCENE = parseInt(qs.get('scene') || '1080', 10);
+const outEl = document.getElementById('out');
+const log = m => { outEl.textContent += '\n' + m; };
+
+function makePayload(n) {
+  const b = new Uint8Array(n); let s = 0x12345678;
+  for (let i = 0; i < n; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; b[i] = (s >>> 16) & 0xff; }
+  return b;
+}
+function waitReady() {
+  return new Promise((res, rej) => {
+    const t = setInterval(() => { if (AirCimbarSender.state.ready) { clearInterval(t); res(); } }, 60);
+    setTimeout(() => { clearInterval(t); rej(new Error('wasm timeout')); }, 40000);
+  });
+}
+
+(async function () {
+  try {
+    AirCimbarSender.init(document.getElementById('stage'));
+    AirCimbarSender.setFps(1000);
+    AirCimbarSender.ensureWasm();
+    await waitReady();
+    await AirCimbarSender.setMode(MODE);
+    await AirCimbarSender.prepare(new Blob([makePayload(SIZE)]), 'import-roundtrip.bin');
+
+    // scene canvas: the barcode inset with margin, on a dark backdrop
+    const scene = document.createElement('canvas');
+    scene.width = SCENE; scene.height = SCENE;
+    const sctx = scene.getContext('2d');
+    /* keep the code large and let each barcode sit on screen long enough that
+    the recorder lands several clean, non-blended frames on it */
+    const box = Math.round(SCENE * 0.88);
+    const off = Math.round((SCENE - box) / 2);
+    const tmp = document.createElement('canvas');
+    const tctx = tmp.getContext('2d');
+
+    const stream = scene.captureStream(30);
+    const track = stream.getVideoTracks()[0];
+    const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+      .find(m => MediaRecorder.isTypeSupported(m));
+    log('recorder mime: ' + mime);
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 60000000 });
+    const chunks = [];
+    rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+
+    const S = AirCimbarSender.state;
+    const stopped = new Promise(r => { rec.onstop = r; });
+    rec.start();
+
+    for (let i = 0; i < FRAMES; i++) {
+      const got = await new Promise(resolve => {
+        const h = () => { AirCimbarSender.state; resolve(true); };
+        AirCimbarSender.on('tick', h);
+        AirCimbarSender.start();
+        setTimeout(() => resolve(false), 3000);
+      });
+      AirCimbarSender.stop();
+
+      const w = S.canvas.width, h = S.canvas.height;
+      const px = AirCimbar.readGLFrame(S.mod, w, h);
+      tmp.width = w; tmp.height = h;
+      tctx.putImageData(new ImageData(new Uint8ClampedArray(px.buffer.slice(0)), w, h), 0, 0);
+
+      sctx.fillStyle = '#1a1c22';
+      sctx.fillRect(0, 0, SCENE, SCENE);
+      sctx.drawImage(tmp, off, off, box, box);
+      if (track.requestFrame) track.requestFrame();
+      await new Promise(r => setTimeout(r, 250));
+    }
+
+    await new Promise(r => setTimeout(r, 400));
+    rec.stop();
+    await stopped;
+    const blob = new Blob(chunks, { type: mime });
+    log('recorded ' + blob.size + ' bytes, ' + FRAMES + ' frames');
+
+    await fetch('/video', { method: 'POST', body: blob, headers: { 'x-mime': mime } });
+    await fetch('/done', { method: 'POST', body: String(FRAMES) });
+    log('DONE');
+  } catch (e) {
+    log('ERROR ' + (e && e.stack || e));
+    await fetch('/error', { method: 'POST', body: String(e && e.stack || e) }).catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>

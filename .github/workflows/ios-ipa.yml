@@ -1,0 +1,97 @@
+name: Build AirCimbar IPA
+
+# Produces an *unsigned* .ipa. Sideloadly (or AltStore) signs it with your own
+# free Apple ID when installing, which is what lets the app run on a device
+# without a paid developer account.
+#
+# Run it from the Actions tab ("Run workflow"), then download the artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_id:
+        description: "Bundle identifier (must be unique to your Apple ID; change it if signing complains)"
+        required: false
+        default: "org.aircimbar.app"
+  push:
+    branches: [master, main]
+    paths:
+      - "native/**"
+      - "app/**"
+      - "tools/sync-web.mjs"
+      - ".github/workflows/ios-ipa.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # macos-15 ships Xcode 16.x, which is what iOS 18/26 era devices want.
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest available Xcode
+        run: |
+          set -euo pipefail
+          latest=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "using $latest"
+          sudo xcode-select -s "$latest/Contents/Developer"
+          xcodebuild -version
+
+      - name: Verify the bundled web app is in sync
+        run: node tools/sync-web.mjs
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        working-directory: native
+        run: |
+          xcodegen generate
+          ls -la
+
+      - name: Build (unsigned)
+        working-directory: native
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project AirCimbar.xcodeproj \
+            -scheme AirCimbar \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            PRODUCT_BUNDLE_IDENTIFIER="${{ github.event.inputs.bundle_id || 'org.aircimbar.app' }}" \
+            build
+
+      - name: Package the IPA
+        working-directory: native
+        run: |
+          set -euo pipefail
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -1)
+          if [ -z "$APP" ]; then echo "no .app produced"; exit 1; fi
+          echo "packaging $APP"
+          # sanity: the web app must have made it into the bundle
+          test -f "$APP/web/index.html"
+          test -f "$APP/web/vendor/cimbar_js.wasm"
+          # sanity: camera usage string must be present or iOS kills the app on first camera use
+          /usr/libexec/PlistBuddy -c "Print :NSCameraUsageDescription" "$APP/Info.plist"
+          rm -rf Payload AirCimbar-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry AirCimbar-unsigned.ipa Payload
+          ls -lh AirCimbar-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AirCimbar-unsigned-ipa
+          path: native/AirCimbar-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30

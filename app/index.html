@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>AirCimbar — 屏幕到摄像头的隔空文件传输</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#2563eb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
+<meta name="description" content="基于 libcimbar 彩色图块矩阵码的离线文件传输：屏幕显示动态码，摄像头读取还原文件，全程无网络、无蓝牙。">
+
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AirCimbar">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header class="bar" id="topbar">
+  <div class="bar-in">
+    <div class="brand">
+      <span class="dot" id="statusDot"></span>
+      <h1>Air<span>Cimbar</span></h1>
+    </div>
+    <div id="statusText" style="font-size:12px;color:var(--text-dim);text-align:right;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:52vw">就绪</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="tabs" role="tablist">
+    <button role="tab" data-tab="send" aria-selected="true">发送</button>
+    <button role="tab" data-tab="receive" aria-selected="false">接收</button>
+    <button role="tab" data-tab="import" aria-selected="false">导入解码</button>
+  </div>
+
+  <!-- ==================================================== SEND ========== -->
+  <section class="panel active" id="panel-send" role="tabpanel">
+
+    <div class="card stage-card" style="padding:0;border:0;background:transparent;box-shadow:none">
+      <div class="stage" id="stage">
+        <canvas id="qrCanvas" width="1040" height="1040"></canvas>
+        <div class="placeholder" id="stagePlaceholder">
+          <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
+            <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+          </svg>
+          <div>选择文件或输入文字后开始广播</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>传输内容</h2>
+
+      <div id="filePill" class="filepill hidden">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex:none">
+          <path d="M14 3v5h5M6 2h9l5 5v15H6z" stroke-linejoin="round"/>
+        </svg>
+        <span class="nm" id="fileName">—</span>
+        <span class="sz" id="fileSize">—</span>
+        <button class="btn" id="btnClearFile" style="width:auto;padding:6px 10px;font-size:12px;border-radius:9px">移除</button>
+      </div>
+
+      <div class="btn-stack two" id="pickRow">
+        <button class="btn" id="btnPickFile">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+          选择文件
+        </button>
+        <button class="btn" id="btnToggleText">发送文字</button>
+      </div>
+      <input type="file" id="fileInput" class="hidden">
+
+      <div id="textBox" class="hidden" style="margin-top:12px">
+        <textarea id="textInput" placeholder="在此粘贴要传输的文本…"></textarea>
+        <button class="btn primary" id="btnSendText" style="margin-top:10px">广播这段文字</button>
+      </div>
+
+      <p class="hint">单个文件上限约 33&nbsp;MB —— 喷泉码要求整个文件常驻内存。</p>
+    </div>
+
+    <div class="card">
+      <h2>模式</h2>
+      <div class="seg" id="modeSeg">
+        <button data-mode="68" aria-pressed="true">B<small>112²·默认</small></button>
+        <button data-mode="67" aria-pressed="false">Bm<small>16:9 长条</small></button>
+        <button data-mode="66" aria-pressed="false">Bu<small>小码·远距</small></button>
+        <button data-mode="4" aria-pressed="false">4C<small>旧版兼容</small></button>
+      </div>
+      <p class="hint" id="modeHint">默认模式，密度与稳健性最均衡</p>
+
+      <div class="row" style="margin-top:16px">
+        <span class="label">旋转 90°（横屏长条铺满竖屏）</span>
+        <button class="btn" id="rotToggle" aria-pressed="false" style="width:auto;padding:8px 14px;font-size:13px">关</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>发送参数</h2>
+
+      <div class="row">
+        <span class="label">帧率</span>
+        <span class="value" id="fpsVal">15 fps</span>
+      </div>
+      <input type="range" id="fpsRange" min="1" max="30" step="1" value="15">
+
+      <div class="row" style="margin-top:8px">
+        <span class="label">zstd 压缩等级</span>
+        <span class="value" id="compVal">16</span>
+      </div>
+      <input type="range" id="compRange" min="0" max="22" step="1" value="16">
+      <p class="hint">等级越高文件越小、编解码越慢。文本/日志类建议 16–19，已压缩的文件（zip/jpg/mp4）调低更省电。</p>
+
+      <div class="stats" style="margin-top:16px">
+        <div><b id="stBytesPerFrame">7.3 KB</b><span>每帧</span></div>
+        <div><b id="stRate">110 KB/s</b><span>理论速率</span></div>
+        <div><b id="stFrames">0</b><span>已发帧</span></div>
+      </div>
+    </div>
+
+    <div class="btn-stack" style="margin-bottom:14px">
+      <button class="btn primary" id="btnBroadcast" disabled>开始广播</button>
+      <div class="btn-stack two">
+        <button class="btn" id="btnPause" disabled>暂停</button>
+        <button class="btn danger" id="btnStop" disabled>停止</button>
+      </div>
+    </div>
+
+    <div class="card tight">
+      <p class="hint" style="margin:0">
+        <b>提高成功率：</b>把屏幕亮度调到最高并关闭自动亮度；让对方摄像头尽量把整个码框满、保持稳定；
+        避免屏幕反光和摩尔纹；距离 10–30&nbsp;cm 通常最好。
+      </p>
+    </div>
+  </section>
+
+  <!-- ================================================= RECEIVE ========== -->
+  <section class="panel" id="panel-receive" role="tabpanel">
+
+    <div class="viewport">
+      <video id="recvVideo" playsinline muted autoplay></video>
+      <div class="xh tl" id="xhTL"></div>
+      <div class="xh br" id="xhBR"></div>
+      <div class="off" id="recvOff">
+        <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M3 8V6a2 2 0 0 1 2-2h2M17 4h2a2 2 0 0 1 2 2v2M21 16v2a2 2 0 0 1-2 2h-2M7 20H5a2 2 0 0 1-2-2v-2"/>
+          <circle cx="12" cy="12" r="3.2"/>
+        </svg>
+        <div>点击下方「开始扫描」并授权摄像头</div>
+      </div>
+    </div>
+
+    <div class="card" id="recvDone" style="display:none">
+      <div class="banner ok" style="margin-bottom:14px">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="flex:none"><path d="m5 13 4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div><b>接收完成</b><br><span id="recvDoneName">—</span></div>
+      </div>
+      <div class="stats" style="margin-bottom:14px">
+        <div><b id="recvDoneSize">—</b><span>文件大小</span></div>
+        <div><b id="recvDoneFrames">—</b><span>命中帧</span></div>
+        <div><b id="recvDoneMode">—</b><span>识别模式</span></div>
+      </div>
+      <button class="btn ok" id="btnSaveRecv">保存文件</button>
+      <button class="btn" id="btnRecvAgain" style="margin-top:10px">继续接收下一个</button>
+    </div>
+
+    <div class="card" id="recvLive">
+      <h2>进度</h2>
+      <div class="bar-track"><div class="bar-fill" id="recvBar"></div></div>
+      <div class="row" style="margin-top:10px">
+        <span class="label" id="recvPct">0%</span>
+        <span class="hint" style="margin:0" id="recvModeLabel">自动识别</span>
+      </div>
+
+      <div class="stats" style="margin-top:14px">
+        <div><b id="rcDispatched">0</b><span>已抓帧</span></div>
+        <div><b id="rcHits">0</b><span>解码命中</span></div>
+        <div><b id="rcFail">0</b><span>未识别</span></div>
+      </div>
+
+      <div class="matrix" id="recvMatrix" style="margin-top:14px"></div>
+      <p class="hint">最近 60 帧的识别情况：<span style="color:var(--ok)">■</span> 成功解码　
+        <span style="color:var(--warn)">■</span> 定位到码但纠错失败　<span style="color:var(--text-faint)">■</span> 画面中没有码</p>
+    </div>
+
+    <div class="card">
+      <h2>接收设置</h2>
+      <div class="seg" id="recvModeSeg">
+        <button data-mode="0" aria-pressed="true">自动<small>推荐</small></button>
+        <button data-mode="68" aria-pressed="false">B</button>
+        <button data-mode="67" aria-pressed="false">Bm</button>
+        <button data-mode="66" aria-pressed="false">Bu</button>
+        <button data-mode="4" aria-pressed="false">4C</button>
+      </div>
+
+      <div class="row" style="margin-top:16px">
+        <span class="label">采集分辨率</span>
+        <select id="captureSel" class="value" style="min-width:110px">
+          <option value="1920">高 1920</option>
+          <option value="1280" selected>中 1280</option>
+          <option value="960">低 960</option>
+        </select>
+      </div>
+      <p class="hint">码太小或距离较远时提高分辨率；手机发热、掉帧时降低。</p>
+    </div>
+
+    <div class="btn-stack" style="margin-bottom:14px">
+      <button class="btn primary" id="btnScan">开始扫描</button>
+      <div class="btn-stack two">
+        <button class="btn" id="btnTorch" style="display:none">补光灯</button>
+        <button class="btn" id="btnRecvReset">重置进度</button>
+        <button class="btn danger" id="btnScanStop" disabled>停止</button>
+      </div>
+    </div>
+
+    <div class="card tight">
+      <p class="hint" style="margin:0">
+        <b>扫描要点：</b>让发送方的整个码落在取景框内；缓慢靠近直到框线变绿；
+        出现百分比后保持不动，进度会自己涨。丢帧不要紧 —— 喷泉码允许乱序和缺失。
+      </p>
+    </div>
+  </section>
+
+  <!-- ================================================== IMPORT ========== -->
+  <section class="panel" id="panel-import" role="tabpanel">
+
+    <div class="card">
+      <h2>导入录屏或图片解码</h2>
+      <p class="hint" style="margin-top:0">
+        把发送端屏幕录制下来（或截一张码的图），在这里解码还原文件。
+        适合「远程桌面 / 录屏取证 / 无法实时对准」的场景。
+      </p>
+
+      <div class="filepill hidden" id="importPill" style="margin-top:14px">
+        <span class="nm" id="importName">—</span>
+        <span class="sz" id="importMeta">—</span>
+      </div>
+
+      <button class="btn" id="btnPickVideo" style="margin-top:14px">选择视频或图片</button>
+      <input type="file" id="importInput" accept="video/*,image/*" class="hidden">
+    </div>
+
+    <div class="card" id="importDone" style="display:none">
+      <div class="banner ok" style="margin-bottom:14px">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="flex:none"><path d="m5 13 4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div><b>解码完成</b><br><span id="importDoneName">—</span></div>
+      </div>
+      <div class="stats" style="margin-bottom:14px">
+        <div><b id="importDoneSize">—</b><span>文件大小</span></div>
+        <div><b id="importDoneFrames">—</b><span>已解码帧</span></div>
+        <div><b id="importDoneMode">—</b><span>识别模式</span></div>
+      </div>
+      <button class="btn ok" id="btnSaveImport">保存文件</button>
+    </div>
+
+    <div class="card" id="importLive">
+      <h2>进度</h2>
+      <div class="bar-track"><div class="bar-fill" id="importBar"></div></div>
+      <div class="row" style="margin-top:10px">
+        <span class="label" id="importPct">0%</span>
+        <span class="hint" style="margin:0" id="importTime">—</span>
+      </div>
+      <div class="stats" style="margin-top:14px">
+        <div><b id="importFrames">0</b><span>已处理帧</span></div>
+        <div><b id="importHits">0</b><span>解码命中</span></div>
+        <div><b id="importMode">—</b><span>识别模式</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>解码设置</h2>
+      <div class="seg" id="impModeSeg">
+        <button data-mode="0" aria-pressed="true">自动<small>推荐</small></button>
+        <button data-mode="68" aria-pressed="false">B</button>
+        <button data-mode="67" aria-pressed="false">Bm</button>
+        <button data-mode="66" aria-pressed="false">Bu</button>
+        <button data-mode="4" aria-pressed="false">4C</button>
+      </div>
+      <div class="row" style="margin-top:16px">
+        <span class="label">播放速度</span>
+        <select id="impSpeed" class="value" style="min-width:110px">
+          <option value="0.5">0.5×（最彻底）</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <span class="label">解码分辨率</span>
+        <select id="impCapture" class="value" style="min-width:110px">
+          <option value="1920">高 1920</option>
+          <option value="1280" selected>中 1280</option>
+          <option value="960">低 960</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="btn-stack" style="margin-bottom:14px">
+      <button class="btn primary" id="btnDecodeImport" disabled>开始解码</button>
+      <button class="btn danger" id="btnImportStop" disabled>停止</button>
+    </div>
+
+    <div class="card tight">
+      <p class="hint" style="margin:0">
+        录屏时请把发送方的码铺满画面并保持清晰；录屏软件转码越轻越好（HEVC&nbsp;&gt;&nbsp;H.264，
+        高码率&nbsp;&gt;&nbsp;低码率）。若一直 0%，试着把播放速度降到 0.5× 或提高解码分辨率。
+      </p>
+    </div>
+  </section>
+
+  <p class="footnote">
+    传输核心为 <a href="https://github.com/sz3/libcimbar" target="_blank" rel="noopener">libcimbar</a> v0.6.8
+    官方 WASM 构建（彩色图块矩阵码 · Reed–Solomon · wirehair 喷泉码 · zstd），
+    界面参考 <a href="https://github.com/topcss/AirScan-QR" target="_blank" rel="noopener">AirScan-QR</a>。
+    与 <a href="https://cimbar.org" target="_blank" rel="noopener">cimbar.org</a> 双向互通。全程离线，数据不经任何服务器。
+  </p>
+</div>
+
+<div class="hud hidden" id="bcastHud">
+  <button class="btn" id="btnPauseFs">暂停</button>
+  <button class="btn" id="btnExitFs">退出全屏</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="js/cimbar.js"></script>
+<script src="js/send.js"></script>
+<script src="js/recv.js"></script>
+<script src="js/import.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

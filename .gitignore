@@ -1,0 +1,29 @@
+# ---- generated, never committed -------------------------------------------
+# tools/sync-web.mjs copies app/ here; CI regenerates it before building.
+native/AirCimbar/web/
+
+# XcodeGen output — project.yml is the source of truth
+native/AirCimbar.xcodeproj/
+native/build/
+native/*.ipa
+native/Payload/
+
+# Xcode user state
+*.xcuserdatad/
+xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# ---- macOS / editor -------------------------------------------------------
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# The upstream libcimbar checkout kept locally as a reference for the mode
+# numbers and API semantics. Not part of this project — the shipped codec is
+# the prebuilt wasm in app/vendor/ (see app/vendor/UPSTREAM.md).
+/vendor/libcimbar/
+
+# ---- local test artefacts -------------------------------------------------
+test/**/*.log
+/tmp-*

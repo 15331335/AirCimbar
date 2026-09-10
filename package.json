@@ -1,0 +1,26 @@
+{
+  "name": "aircimbar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "屏幕到摄像头的离线文件传输 —— libcimbar 传输核心，AirScan-QR 式界面，PWA + 原生 iOS 外壳",
+  "license": "MPL-2.0",
+  "type": "module",
+  "scripts": {
+    "serve": "node serve.mjs",
+    "serve:http": "node serve.mjs --http",
+    "sync:web": "node tools/sync-web.mjs",
+    "icons": "python3 tools/make-icons.py",
+    "test": "node test/run-all.mjs",
+    "test:quick": "node test/run-all.mjs --quick",
+    "test:roundtrip": "node test/roundtrip.mjs --mode 68 --size 8192 --frames 30",
+    "test:app": "node test/app-roundtrip.mjs --mode 68 --size 61440 --frames 40",
+    "test:camera": "node test/camera-roundtrip.mjs --mode 68 --size 61440 --frames 40",
+    "test:import": "node test/import-roundtrip.mjs --mode 68 --size 4096 --frames 12",
+    "test:ui": "node test/ui-smoke.mjs",
+    "test:native": "node test/native-smoke.mjs",
+    "test:swift": "node test/swift-typecheck.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

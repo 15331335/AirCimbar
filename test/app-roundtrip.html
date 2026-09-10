@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AirCimbar app integration test</title>
+</head>
+<body>
+<!--
+  Drives the REAL application modules, not a bespoke harness:
+
+    app/js/cimbar.js        (+ app/js/send.js)   -> encodes, renders to canvas
+    app/js/cimbar-worker.js (roles scan + sink)  -> decodes, reassembles
+
+  i.e. everything the shipped app uses except the camera capture loop.
+  Result is posted to the Node harness which compares hashes.
+-->
+<canvas id="stage" width="1040" height="1040"></canvas>
+<pre id="out">booting…</pre>
+
+<script src="js/cimbar.js"></script>
+<script src="js/send.js"></script>
+<script>
+const qs = new URLSearchParams(location.search);
+const MODE = parseInt(qs.get('mode') || '68', 10);
+const SIZE = parseInt(qs.get('size') || '8192', 10);
+const FRAMES = parseInt(qs.get('frames') || '24', 10);
+
+const outEl = document.getElementById('out');
+const log = (m) => { outEl.textContent += '\n' + m; };
+const post = (u, b, h) => fetch(u, { method: 'POST', body: b, headers: h || {} });
+
+function makePayload(n) {
+  const b = new Uint8Array(n);
+  let s = 0x12345678;
+  for (let i = 0; i < n; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; b[i] = (s >>> 16) & 0xff; }
+  return b;
+}
+async function sha256hex(bytes) {
+  const d = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/* ---- wait for the sender wasm to finish loading ---- */
+function senderReady() {
+  return new Promise((res, rej) => {
+    const t = setInterval(() => { if (AirCimbarSender.state.ready) { clearInterval(t); res(); } }, 60);
+    setTimeout(() => { clearInterval(t); rej(new Error('sender wasm timeout')); }, 40000);
+  });
+}
+
+/* ---- collect rendered frames straight off the GL framebuffer ---- */
+function collectFrames(n) {
+  return new Promise((resolve) => {
+    const S = AirCimbarSender.state;
+    const frames = [];
+    const onTick = () => {
+      const w = S.canvas.width, h = S.canvas.height;
+      frames.push({ buf: AirCimbar.readGLFrame(S.mod, w, h), w, h });
+      if (frames.length >= n) {
+        AirCimbarSender.stop();
+        resolve(frames);
+      }
+    };
+    AirCimbarSender.on('tick', onTick);
+    AirCimbarSender.start();
+  });
+}
+
+/* ---- production worker wiring, same protocol recv.js uses ---- */
+function makeScanWorker(mode) {
+  const w = new Worker('js/cimbar-worker.js');
+  return new Promise((res, rej) => {
+    w.onmessage = (ev) => {
+      if (ev.data && ev.data.type === 'ready') return res(w);
+      if (ev.data && ev.data.type === 'error') return rej(new Error(ev.data.message));
+    };
+    w.postMessage({ type: 'init', role: 'scan', mode });
+  });
+}
+function makeSinkWorker(mode) {
+  const w = new Worker('js/cimbar-worker.js');
+  return new Promise((res, rej) => {
+    w.onmessage = (ev) => {
+      if (ev.data && ev.data.type === 'ready') return res(w);
+      if (ev.data && ev.data.type === 'error') return rej(new Error(ev.data.message));
+    };
+    w.postMessage({ type: 'init', role: 'sink', mode });
+  });
+}
+
+function decodeFrames(frames, mode) {
+  return new Promise(async (resolve, reject) => {
+    const scan = await makeScanWorker(mode);
+    const sink = await makeSinkWorker(mode);
+
+    const chunks = [];
+    let name = '', size = 0, done = false, ok = 0, fail = 0, sawData = false;
+    let resolveDone;
+    const finished = new Promise(r => { resolveDone = r; });
+
+    sink.onmessage = (ev) => {
+      const d = ev.data;
+      if (!d) return;
+      if (d.type === 'error') return reject(new Error('sink: ' + d.message));
+      if (d.type === 'progress') return;
+      if (d.type === 'complete') return;
+      if (d.type === 'file-begin') { name = d.name; size = d.size; return; }
+      if (d.type === 'file-chunk') { chunks.push(d.chunk); return; }
+      if (d.type === 'file-end') { done = true; resolveDone(); return; }
+    };
+
+    scan.onmessage = (ev) => {
+      const d = ev.data;
+      if (!d) return;
+      if (d.type === 'error') return reject(new Error('scan: ' + d.message));
+      if (d.type === 'data') {
+        ok++; sawData = true;
+        sink.postMessage({ type: 'data', buff: d.buff }, [d.buff.buffer]);
+      } else { fail++; }
+    };
+
+    for (const f of frames) {
+      if (done) break;
+      const copy = f.buf.slice();
+      scan.postMessage({ type: 'frame', pixels: copy.buffer, w: f.w, h: f.h, format: 4, mode }, [copy.buffer]);
+      await new Promise(r => setTimeout(r, 12));
+    }
+
+    const t = setTimeout(() => resolveDone(), 20000);
+    await finished;
+    clearTimeout(t);
+
+    const blob = new Blob(chunks, { type: 'application/octet-stream' });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    scan.terminate(); sink.terminate();
+    resolve({ name, size, bytes, done, ok, fail, sawData });
+  });
+}
+
+(async function main() {
+  try {
+    const payload = makePayload(SIZE);
+    const payloadSha = await sha256hex(payload);
+    const blob = new Blob([payload], { type: 'application/octet-stream' });
+
+    AirCimbarSender.init(document.getElementById('stage'));
+    AirCimbarSender.setFps(1000);          // unthrottled: we drive frames ourselves
+    AirCimbarSender.ensureWasm();
+    await senderReady();
+    await AirCimbarSender.setMode(MODE);
+    await AirCimbarSender.prepare(blob, 'app-roundtrip.bin');
+    log('prepared ' + SIZE + 'B, mode ' + MODE);
+
+    const frames = await collectFrames(FRAMES);
+    log('rendered ' + frames.length + ' frames @ ' + frames[0].w + 'x' + frames[0].h);
+
+    const res = await decodeFrames(frames, MODE);
+    const gotSha = await sha256hex(res.bytes);
+    log('decoded: name=' + res.name + ' size=' + res.bytes.length + ' hit=' + res.ok + ' miss=' + res.fail);
+
+    await post('/result', JSON.stringify({
+      mode: MODE, frames: frames.length, frameW: frames[0].w, frameH: frames[0].h,
+      payloadSha, payloadLen: payload.length,
+      outSha: gotSha, outLen: res.bytes.length,
+      outName: res.name, scanOk: res.ok, scanFail: res.fail, completed: res.done,
+    }), { 'content-type': 'application/json' });
+    log('DONE');
+  } catch (e) {
+    log('ERROR ' + (e && e.stack || e));
+    await post('/result', JSON.stringify({ fatal: String(e && e.stack || e) }), { 'content-type': 'application/json' });
+  }
+})();
+</script>
+</body>
+</html>

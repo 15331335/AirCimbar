@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AirCimbar roundtrip test harness</title>
+<style>body{background:#111;color:#eee;font-family:ui-monospace,monospace;margin:0;padding:12px}
+#c{width:320px;height:320px;image-rendering:pixelated;border:1px solid #444}
+#log{white-space:pre-wrap;font-size:12px;max-height:40vh;overflow:auto}</style>
+</head>
+<body>
+<h3>AirCimbar roundtrip harness</h3>
+<canvas id="c"></canvas>
+<div id="log">booting…</div>
+
+<script>
+// ---------------------------------------------------------------
+// Test harness: drives the OFFICIAL libcimbar wasm encoder on the
+// main thread, captures every rendered frame as top-down RGBA,
+// and POSTs them to the Node harness which decodes with the same
+// wasm build's decoder. Verify byte-identical round trip.
+// ---------------------------------------------------------------
+const params = new URLSearchParams(location.search);
+const MODE = parseInt(params.get('mode') || '68', 10);
+const MAXFRAMES = parseInt(params.get('frames') || '40', 10);
+const SIZE = parseInt(params.get('size') || '8192', 10);
+
+const logEl = document.getElementById('log');
+const lines = [];
+function log(m) { lines.push(m); logEl.textContent = lines.join('\n'); }
+function prog(m) { log(m); fetch('/progress', { method: 'POST', body: m }).catch(() => {}); }
+window.addEventListener('error', (e) => prog('window.onerror: ' + e.message));
+window.addEventListener('unhandledrejection', (e) => prog('unhandledrejection: ' + (e.reason && e.reason.stack || e.reason)));
+
+// deterministic payload so Node can reproduce it
+function makePayload(n) {
+  const b = new Uint8Array(n);
+  let s = 0x12345678;
+  for (let i = 0; i < n; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; b[i] = (s >>> 16) & 0xff; }
+  return b;
+}
+
+async function post(url, body, headers) {
+  const r = await fetch(url, { method: 'POST', body, headers });
+  if (!r.ok) throw new Error(url + ' -> ' + r.status);
+  return r;
+}
+
+window.Module = {
+  canvas: document.getElementById('c'),
+  locateFile: (p) => '/vendor/' + (/\.wasm$/.test(p) ? 'cimbar_js.wasm' : p),
+  print: (s) => log('[wasm] ' + s),
+  printErr: (s) => log('[wasm:err] ' + s),
+  onRuntimeInitialized: () => { window.__wasmReady = true; prog('wasm ready -> run()'); run(); },
+};
+</script>
+<script src="/vendor/GLUE"></script>
+<script>
+async function run() {
+  try {
+    const M = window.Module;
+    const canvas = M.canvas;
+
+    // 1. window + mode
+    let rc = M._cimbare_init_window(0, 0);
+    log(`cimbare_init_window -> ${rc}`);
+    rc = M._cimbare_configure(MODE, -1);
+    log(`cimbare_configure(${MODE}, -1) -> ${rc}`);
+    log(`canvas = ${canvas.width}x${canvas.height}  aspect=${M._cimbare_get_aspect_ratio().toFixed(4)}`);
+
+    // 2. feed payload
+    const payload = makePayload(SIZE);
+    const nameBytes = new TextEncoder().encode('roundtrip.bin');
+    const namePtr = M._malloc(nameBytes.length);
+    new Uint8Array(M.HEAPU8.buffer, namePtr, nameBytes.length).set(nameBytes);
+    log(`init_encode -> ${M._cimbare_init_encode(namePtr, nameBytes.length, -1)}`);
+    M._free(namePtr);
+
+    const chunk = M._cimbare_encode_bufsize();
+    let off = 0, encRes = 1;
+    while (off < payload.length) {
+      const n = Math.min(chunk, payload.length - off);
+      const p = M._malloc(n);
+      new Uint8Array(M.HEAPU8.buffer, p, n).set(payload.subarray(off, off + n));
+      encRes = M._cimbare_encode(p, n);
+      M._free(p);
+      off += n;
+    }
+    // zero-length call == flush
+    encRes = M._cimbare_encode(0, 0);
+    log(`payload ${payload.length}B in ${Math.ceil(payload.length/chunk)} chunks; flush encode() -> ${encRes}`);
+
+    // 3. render frames, snapshot each as top-down RGBA
+    //    NB: read straight from the GL context -- drawImage() off a WebGL canvas
+    //    with preserveDrawingBuffer=false yields an empty image.
+    const gl = M.ctx;
+    if (!gl) { await prog('FATAL: Module.ctx missing (no WebGL context)'); return; }
+    await prog('gl ctx ok: ' + gl.getParameter(gl.VERSION));
+
+    const W = canvas.width, H = canvas.height;
+    const raw = new Uint8Array(W * H * 4);   // GL order: bottom-up
+    const top = new Uint8Array(W * H * 4);   // flipped to top-down
+    const rowBytes = W * 4;
+
+    let sent = 0;
+    for (let i = 0; i < MAXFRAMES; i++) {
+      const frameCount = M._cimbare_next_frame(false);
+      if (frameCount < 0) { await prog('next_frame error ' + frameCount); break; }
+      const rres = M._cimbare_render();
+
+      gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+      for (let y = 0; y < H; y++) {
+        top.set(raw.subarray((H - 1 - y) * rowBytes, (H - y) * rowBytes), y * rowBytes);
+      }
+
+      if (i === 0) {
+        let nonBlack = 0;
+        for (let k = 0; k < top.length; k += 4 * 97) {
+          if (top[k] > 8 || top[k + 1] > 8 || top[k + 2] > 8) nonBlack++;
+        }
+        await prog(`frame0 render=${rres} nonBlack=${nonBlack} ${W}x${H} (0 => readback failed)`);
+        if (nonBlack === 0) { await prog('FRAMES ARE BLANK — aborting'); break; }
+      }
+
+      await post('/frame', top, {
+        'x-w': String(W),
+        'x-h': String(H),
+        'x-i': String(i),
+      });
+      sent++;
+      if (i % 10 === 0) await prog(`sent frame ${i}`);
+    }
+    await prog(`sent ${sent} frames`);
+    await prog('payload built'); await post('/done', JSON.stringify({ mode: MODE, frames: sent, w: canvas.width, h: canvas.height, size: SIZE, payloadSha: await sha256hex(payload) }), { 'content-type': 'application/json' });
+    log('DONE');
+  } catch (e) {
+    log('ERROR: ' + (e && e.stack || e));
+    await fetch('/error', { method: 'POST', body: String(e && e.stack || e) }).catch(() => {});
+  }
+}
+
+async function sha256hex(bytes) {
+  const d = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+</script>
+</body>
+</html>

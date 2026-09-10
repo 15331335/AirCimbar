@@ -1,0 +1,70 @@
+# AirCimbar — XcodeGen project spec
+#
+# The project file is generated rather than committed: a hand-maintained
+# .pbxproj is a merge-conflict magnet, and generating it keeps the source of
+# truth readable. CI does this automatically; locally:
+#
+#     brew install xcodegen
+#     cd native && xcodegen generate && open AirCimbar.xcodeproj
+#
+name: AirCimbar
+
+options:
+  bundleIdPrefix: org.aircimbar
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  generateEmptyDirectories: false
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # The app is self-contained; nothing to fetch.
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
+
+targets:
+  AirCimbar:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+
+    sources:
+      - path: AirCimbar
+        excludes:
+          - "web/**"
+          - "Info.plist"
+
+      # Folder reference: the web app must land in the bundle as a *directory*
+      # named `web`, because WebAssets looks it up with
+      # Bundle.main.url(forResource: "web", withExtension: nil).
+      # `type: folder` keeps the directory structure instead of flattening it.
+      - path: AirCimbar/web
+        type: folder
+        buildPhase: resources
+
+    settings:
+      base:
+        PRODUCT_NAME: AirCimbar
+        PRODUCT_BUNDLE_IDENTIFIER: org.aircimbar.app
+        INFOPLIST_FILE: AirCimbar/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+      configs:
+        Release:
+          SWIFT_COMPILATION_MODE: wholemodule
+
+schemes:
+  AirCimbar:
+    build:
+      targets:
+        AirCimbar: all
+    run:
+      config: Debug
+    archive:
+      config: Release
