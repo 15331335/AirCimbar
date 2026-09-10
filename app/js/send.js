@@ -18,7 +18,10 @@
     ready: false,
     loading: false,
 
-    modeId: 68,
+    /* Bu by default: measured hit rates at a realistic code width of ~430px
+       are ~90% for Bu versus ~67% for B (see test/resolution.mjs). B is for
+       large displays, Bu is what works phone-to-phone. */
+    modeId: 66,
     compression: 16,
     fps: 15,
 
@@ -37,6 +40,14 @@
     startedAt: 0,
     wakeLock: null,
 
+    /* Changing mode or compression calls cimbare_configure(), and upstream
+       discards the encoder stream when the payload no longer fills a whole
+       chunk under the new settings (cimbare_js.cpp: `_fes = nullptr`). While
+       that is true _cimbare_next_frame() returns -1 by design, so the frame
+       loop must stand down rather than treat it as a failure. */
+    reconfiguring: false,
+    frameErrors: 0,
+
     listeners: {},
   };
 
@@ -47,6 +58,12 @@
   }
   function on(name, cb) {
     (S.listeners[name] = S.listeners[name] || []).push(cb);
+  }
+  function off(name, cb) {
+    var l = S.listeners[name];
+    if (!l) return;
+    var i = l.indexOf(cb);
+    if (i >= 0) l.splice(i, 1);
   }
 
   /* ------------------------------------------------------------- loading */
@@ -102,6 +119,12 @@
 
   /* ------------------------------------------------------------- payload */
   function prepare(blob, fileName) {
+    /* Frames must not be requested while the encoder stream is being rebuilt;
+       see the comment on S.reconfiguring. */
+    S.reconfiguring = true;
+    S.frameErrors = 0;
+    emit('reconfiguring', true);
+
     return ensureWasm().then(function () {
       var mod = S.mod;
 
@@ -150,6 +173,16 @@
       }
 
       return step();
+    }).then(function (result) {
+      S.reconfiguring = false;
+      S.lastTs = 0;          // restart frame pacing cleanly
+      S.prevCounter = 0;
+      emit('reconfiguring', false);
+      return result;
+    }, function (err) {
+      S.reconfiguring = false;
+      emit('reconfiguring', false);
+      throw err;
     });
   }
 
@@ -165,8 +198,22 @@
 
     if (S.paused) return;
 
+    /* The encoder stream is momentarily absent while settings are applied —
+       skipping is correct, not an error. */
+    if (S.reconfiguring || !S.prepared) return;
+
     var rc = S.mod._cimbare_next_frame(false);
-    if (rc < 0) { emit('error', new Error('next_frame 失败 (' + rc + ')')); stop(); return; }
+    if (rc < 0) {
+      /* A one-off hiccup should not kill the broadcast; only give up if it
+         keeps failing, which means something is genuinely wrong. */
+      S.frameErrors++;
+      if (S.frameErrors > 20) {
+        emit('error', new Error('编码器连续失败 (' + rc + ')，已停止广播'));
+        stop();
+      }
+      return;
+    }
+    S.frameErrors = 0;
     S.mod._cimbare_render();
 
     /* the encoder restarts the fountain stream once it has emitted 8x the
@@ -192,6 +239,7 @@
     S.loops = 0;
     S.prevCounter = 0;
     S.lastTs = 0;
+    S.frameErrors = 0;
     S.startedAt = performance.now();
     requestWakeLock();
     S.raf = requestAnimationFrame(tick);
@@ -240,6 +288,7 @@
   global.AirCimbarSender = {
     state: S,
     on: on,
+    off: off,
     init: function (canvas) { S.canvas = canvas; },
     ensureWasm: ensureWasm,
     setMode: setMode,

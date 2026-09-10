@@ -154,7 +154,7 @@
   /* ================================================================ SEND */
   var sender = window.AirCimbarSender;
   var sendUI = {
-    mode: 68,
+    mode: 66,        // Bu — matches the default in send.js, see the note there
     paused: false,
   };
 
@@ -162,6 +162,11 @@
 
   sender.on('status', function (s) { setStatus(s, false); });
   sender.on('error', function (e) { A.toast(String(e.message || e), 4200); setStatus('出错', false); });
+
+  sender.on('reconfiguring', function (busy) {
+    if (busy && sender.state.running) setStatus('正在应用设置…', false);
+    else if (!busy && sender.state.running) setStatus('广播中 · 屏幕别熄灭', true);
+  });
 
   sender.on('prepared', function (info) {
     $('filePill').classList.remove('hidden');

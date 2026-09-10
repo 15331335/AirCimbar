@@ -27,19 +27,19 @@
       id: 68, key: 'B', name: '标准 B', legacy: false,
       cells: '112 × 112', bitsPerCell: 6, capacity: 9300, ecc: '30 / 155',
       chunksPerFrame: 12, chunkSize: 625, bytesPerFrame: 7500,
-      note: '默认模式，密度与稳健性最均衡',
+      note: '密度最高，适合电脑显示器等大屏；手机对手机容易扫不动，建议改用 Bu',
     },
     67: {
       id: 67, key: 'Bm', name: '宽屏 Bm', legacy: false,
       cells: '112 × 78', bitsPerCell: 6, capacity: 6444, ecc: '36 / 179',
       chunksPerFrame: 12, chunkSize: 429, bytesPerFrame: 5148,
-      note: '16:9 长条，铺满横屏显示器',
+      note: '16:9 长条，适合横屏显示器和录屏',
     },
     66: {
       id: 66, key: 'Bu', name: '微型 Bu', legacy: false,
       cells: '80 × 69', bitsPerCell: 6, capacity: 4032, ecc: '33 / 168',
       chunksPerFrame: 6, chunkSize: 540, bytesPerFrame: 3240,
-      note: '码更小，远距离 / 低分辨率摄像头更稳',
+      note: '格数最少，摄像头最容易识别 —— 手机对手机首选',
     },
     4: {
       id: 4, key: '4C', name: '兼容 4C', legacy: true,

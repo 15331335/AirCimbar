@@ -21,6 +21,7 @@ const SUITE = [
   { name: 'core round trip, all four modes', file: 'roundtrip.mjs', args: ['--mode', '4', '--size', '4096', '--frames', '24'] },
   { name: 'real app modules: send.js + cimbar-worker.js', file: 'app-roundtrip.mjs', args: ['--mode', '68', '--size', '61440', '--frames', '40'] },
   { name: 'UI wiring, tabs, controls, no console errors', file: 'ui-smoke.mjs', args: [] },
+  { name: 'regression: changing mode/compression mid-broadcast', file: 'reconfigure.mjs', args: [] },
   { name: 'web assets synced into the iOS bundle', file: 'sync-check.mjs', args: [] },
   { name: 'native Swift sources type-check', file: 'swift-typecheck.mjs', args: [] },
   ...(quick ? [] : [
@@ -28,6 +29,7 @@ const SUITE = [
     { name: 'camera path, mode Bm', file: 'camera-roundtrip.mjs', args: ['--mode', '67', '--size', '20480', '--frames', '30'] },
     { name: 'import path: recorded video -> import.js -> file', file: 'import-roundtrip.mjs', args: ['--mode', '68', '--size', '4096', '--frames', '12'] },
     { name: 'native shell: loopback server + WKWebView, offline', file: 'native-smoke.mjs', args: [] },
+    { name: 'pixel-density limits per mode (measurement)', file: 'resolution.mjs', args: ['--sizes', '720,512,360'] },
   ]),
 ];
 

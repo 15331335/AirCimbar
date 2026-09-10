@@ -5,7 +5,9 @@
    ========================================================================== */
 'use strict';
 
-var VERSION = 'aircimbar-v1';
+/* Bump this whenever app assets change: the fetch handler is cache-first, so
+   an installed PWA will keep serving the old copy until the version changes. */
+var VERSION = 'aircimbar-v2';
 var ASSETS = [
   './',
   './index.html',
