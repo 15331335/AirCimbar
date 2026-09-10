@@ -24,7 +24,7 @@
 /* Names the cache and drives purging of older ones. Bumping it is no longer
    required for updates to be picked up — network-first handles that — but it
    remains the cleanest way to drop everything at once. */
-var VERSION = 'aircimbar-v3';
+var VERSION = 'aircimbar-v4';
 
 var ASSETS = [
   './',
@@ -63,6 +63,16 @@ self.addEventListener('activate', function (e) {
       }));
     }).then(function () { return self.clients.claim(); })
   );
+});
+
+/* Lets the page display which cached build it is actually running. Without
+   this there is no way to tell "the update landed" from "I am looking at a
+   stale cache" — the exact confusion this app kept causing. */
+self.addEventListener('message', function (e) {
+  var port = e.ports && e.ports[0];
+  if (e.data && e.data.type === 'version' && port) {
+    port.postMessage({ version: VERSION });
+  }
 });
 
 function put(req, res) {

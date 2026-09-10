@@ -183,6 +183,13 @@ try {
     problems.push('改动没有在单次重载后生效（读到 ' + m2 + '）—— network-first 没起作用');
   }
 
+  /* ---- phase 2b: the page must be able to report which build is live ---- */
+  const shown = await evaluate("(document.getElementById('appVersion')||{}).textContent");
+  console.log(`[sw] 页面显示的构建标识: ${shown}`);
+  if (typeof shown !== 'string' || shown.indexOf('aircimbar-v') === -1) {
+    problems.push('页面没有显示缓存版本号（得到 ' + shown + '）');
+  }
+
   /* ---- phase 3: switch the server off; the app must still open ---- */
   console.log('[sw] 关闭服务器，测试离线打开…');
   await stopServer();

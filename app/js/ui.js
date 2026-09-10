@@ -615,6 +615,30 @@
     else if (sender.state.running && !sender.state.paused) postNative({ type: 'keepAwake', on: true });
   });
 
+  /* Report which cached build is live, so "did my update land?" has an answer. */
+  (function showBuild() {
+    var el = $('appVersion');
+    if (!el) return;
+    var sw = navigator.serviceWorker;
+    if (!sw || !sw.controller) {
+      el.textContent = '未缓存（需联网加载）';
+      return;
+    }
+    try {
+      var ch = new MessageChannel();
+      ch.port1.onmessage = function (ev) {
+        var v = ev.data && ev.data.version;
+        el.textContent = v ? ('已缓存 · ' + v) : '已缓存';
+      };
+      sw.controller.postMessage({ type: 'version' }, [ch.port2]);
+      setTimeout(function () {
+        if (!el.textContent) el.textContent = '已缓存';
+      }, 2500);
+    } catch (e) {
+      el.textContent = '已缓存';
+    }
+  })();
+
   postNative({ type: 'ready' });
   setStatus('就绪', false);
 })();

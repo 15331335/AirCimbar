@@ -107,7 +107,7 @@ try {
     const sleep = ms => new Promise(r => setTimeout(r, ms));
 
     // ---- 1. every id ui.js reaches for must exist ----
-    const ids = ['statusDot','statusText','toast','stage','qrCanvas','stagePlaceholder',
+    const ids = ['appVersion','statusDot','statusText','toast','stage','qrCanvas','stagePlaceholder',
       'filePill','fileName','fileSize','btnClearFile','pickRow','btnPickFile','btnToggleText',
       'fileInput','textBox','textInput','modeSeg','modeHint','rotToggle',
       'fpsRange','fpsVal','compRange','compVal','stBytesPerFrame','stRate','stFrames',
