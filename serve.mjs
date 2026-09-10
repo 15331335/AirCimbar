@@ -118,6 +118,51 @@ function handler(req, res) {
   };
   if (ALIASES[rel]) rel = ALIASES[rel];
 
+  /* ---------------------------------------------------------- IPA hosting
+     Sideloading is much less fiddly if the phone can just fetch the build.
+     Drop the artifact from CI into ./dist and it becomes installable from the
+     device itself (SideStore: sidestore://install?url=...). */
+  if (rel === '/install.ipa' || rel === '/install') {
+    const dir = path.join(here, 'dist');
+    const ipa = fs.existsSync(dir)
+      ? fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.ipa')).sort().pop()
+      : null;
+
+    if (rel === '/install.ipa') {
+      if (!ipa) {
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        return res.end('还没有 IPA。\n\n把 GitHub Actions 的构建产物放到：\n  ' + dir + '/\n');
+      }
+      const body = fs.readFileSync(path.join(dir, ipa));
+      res.writeHead(200, {
+        'content-type': 'application/octet-stream',
+        'content-length': body.length,
+        'content-disposition': 'attachment; filename="' + ipa + '"',
+      });
+      return res.end(body);
+    }
+
+    const host = req.headers.host || ('127.0.0.1:' + PORT);
+    const ipaURL = `https://${host}/install.ipa`;
+    const page = `<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>安装 AirCimbar</title>
+<style>body{font:16px/1.7 -apple-system,sans-serif;margin:0;padding:24px;background:#0b1220;color:#e8eefc}
+a.btn{display:block;background:#2563eb;color:#fff;text-decoration:none;text-align:center;
+padding:16px;border-radius:14px;font-weight:700;margin:18px 0}
+code{background:#1a2438;padding:2px 6px;border-radius:6px;font-size:13px;word-break:break-all}
+.warn{background:#2a1416;color:#fca5a5;padding:12px;border-radius:12px;font-size:14px}</style>
+<h2>安装 AirCimbar</h2>
+${ipa ? `<p>找到构建产物：<code>${ipa}</code></p>
+<a class="btn" href="sidestore://install?url=${encodeURIComponent(ipaURL)}">用 SideStore 安装</a>
+<p>没有反应的话，在 SideStore 里手动添加这个地址：</p>
+<p><code>${ipaURL}</code></p>`
+      : `<div class="warn">还没有 IPA。把 GitHub Actions 的构建产物放进电脑上的<br><code>${dir}/</code><br>然后刷新本页。</div>`}
+<hr><p style="color:#93a3bf;font-size:13px">也可以用数据线 + Sideloadly 安装同一个文件。</p>`;
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(page);
+  }
+
   if (rel === '/') rel = '/index.html';
 
   const file = path.normalize(path.join(appDir, rel));

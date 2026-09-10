@@ -13,6 +13,9 @@ native/Payload/
 xcuserdata/
 *.xcworkspace/xcuserdata/
 
+# Built artifacts served at /install.ipa
+dist/*.ipa
+
 # ---- macOS / editor -------------------------------------------------------
 .DS_Store
 *.swp
