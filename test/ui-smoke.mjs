@@ -109,7 +109,7 @@ try {
     // ---- 1. every id ui.js reaches for must exist ----
     const ids = ['statusDot','statusText','toast','stage','qrCanvas','stagePlaceholder',
       'filePill','fileName','fileSize','btnClearFile','pickRow','btnPickFile','btnToggleText',
-      'fileInput','textBox','textInput','btnSendText','modeSeg','modeHint','rotToggle',
+      'fileInput','textBox','textInput','modeSeg','modeHint','rotToggle',
       'fpsRange','fpsVal','compRange','compVal','stBytesPerFrame','stRate','stFrames',
       'btnBroadcast','btnPause','btnStop','bcastHud','btnPauseFs','btnExitFs',
       'recvVideo','xhTL','xhBR','recvOff','recvDone','recvDoneName','recvDoneSize',
@@ -143,6 +143,48 @@ try {
           problems.push('tab ' + t + ' left ' + o + ' active');
     }
 
+    // ---- 3b. send panel ordering: broadcast buttons sit under the file picker ----
+    {
+      const panel = document.getElementById('panel-send');
+      const order = (id) => {
+        const el = document.getElementById(id);
+        return Array.prototype.indexOf.call(panel.querySelectorAll('*'), el);
+      };
+      const picker = order('btnPickFile');
+      const bcast = order('btnBroadcast');
+      const modeSeg = order('modeSeg');
+      const fps = order('fpsRange');
+      if (!(picker < bcast && bcast < modeSeg && bcast < fps)) {
+        problems.push('开始广播按钮的位置不对：期望在文件选择之后、模式/参数之前 (picker=' +
+          picker + ' bcast=' + bcast + ' mode=' + modeSeg + ' fps=' + fps + ')');
+      }
+    }
+
+    // ---- 3c. default frame rate ----
+    if (document.getElementById('fpsRange').value !== '24') {
+      problems.push('帧率默认值应为 24，实际 ' + document.getElementById('fpsRange').value);
+    }
+    if (document.getElementById('fpsVal').textContent !== '24 fps') {
+      problems.push('帧率标签应为 24 fps，实际 ' + document.getElementById('fpsVal').textContent);
+    }
+
+    // ---- 3d. the file pill must not touch whatever follows it ----
+    // (measured here because the send panel is the active one; measuring while
+    //  another tab is showing yields two zero-height rects and a fake 0px gap)
+    {
+      const pill = document.getElementById('filePill');
+      const pick = document.getElementById('pickRow');
+      if (pick.getBoundingClientRect().height === 0) {
+        problems.push('间距检查时发送面板不可见，测量无效');
+      } else {
+        const wasHidden = pill.classList.contains('hidden');
+        pill.classList.remove('hidden');
+        const gap = pick.getBoundingClientRect().top - pill.getBoundingClientRect().bottom;
+        if (gap < 8) problems.push('文件信息框与下方按钮间距过小 (' + gap.toFixed(1) + 'px)');
+        if (wasHidden) pill.classList.add('hidden');
+      }
+    }
+
     // ---- 4. send panel controls ----
     document.querySelector('#modeSeg button[data-mode="67"]').click();
     await sleep(50);
@@ -164,8 +206,8 @@ try {
     if (document.getElementById('rotToggle').textContent.trim() !== '关')
       problems.push('rotate should reset when leaving Bm');
 
-    const fps = document.getElementById('fpsRange');
-    fps.value = '20'; fps.dispatchEvent(new Event('input', { bubbles: true }));
+    const fpsEl = document.getElementById('fpsRange');
+    fpsEl.value = '20'; fpsEl.dispatchEvent(new Event('input', { bubbles: true }));
     await sleep(30);
     if (document.getElementById('fpsVal').textContent !== '20 fps') problems.push('fps label not updated');
     const rate = document.getElementById('stRate').textContent;
@@ -213,9 +255,60 @@ try {
     const sp = document.getElementById('impSpeed'); sp.value = '2';
     const ic = document.getElementById('impCapture'); ic.value = '1920';
 
-    // ---- 7. no horizontal overflow (mobile layout sanity) ----
+    // ---- 7. the toast must be fully off-screen while hidden ----
+    // Regression: the hidden state used to slide by 140% of the element's own
+    // height, so an *empty* toast barely moved and left a sliver of the black
+    // pill parked above the bottom edge.
+    {
+      const toast = document.getElementById('toast');
+      const checkHidden = (label) => {
+        const r = toast.getBoundingClientRect();
+        const vh = window.innerHeight;
+        const exposed = Math.min(r.bottom, vh) - Math.max(r.top, 0);
+        if (r.width > 0 && exposed > 0.5) {
+          problems.push('toast 隐藏时仍露出 ' + exposed.toFixed(1) + 'px（' + label + '）');
+        }
+      };
+      const wasShown = toast.classList.contains('show');
+      toast.classList.remove('show');
+      toast.textContent = '';
+      checkHidden('空内容');
+      toast.textContent = '这是一条测试提示';
+      checkHidden('有内容');
+      if (wasShown) toast.classList.add('show');
+      toast.textContent = '';
+    }
+
+    // ---- 8. no horizontal overflow (mobile layout sanity) ----
     if (document.documentElement.scrollWidth > window.innerWidth + 1)
       problems.push('horizontal overflow: scrollWidth=' + document.documentElement.scrollWidth + ' innerWidth=' + window.innerWidth);
+
+    // ---- 9. text mode prepares automatically, no separate broadcast button ----
+    // This one has to load the wasm engine, so it is the last thing the script does.
+    document.querySelector('.tabs button[data-tab="send"]').click();
+    await sleep(80);
+    document.getElementById('btnToggleText').click();
+    await sleep(80);
+    if (document.getElementById('textBox').classList.contains('hidden')) {
+      problems.push('发送文字没有打开文本框');
+    } else {
+      const ta = document.getElementById('textInput');
+      ta.value = 'aircimbar 文本自动准备测试';
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      ta.dispatchEvent(new Event('blur', { bubbles: true }));
+
+      let prepared = false;
+      for (let i = 0; i < 90; i++) {
+        await sleep(300);
+        if (!document.getElementById('btnBroadcast').disabled) { prepared = true; break; }
+      }
+      if (!prepared) problems.push('输入文字后「开始广播」没有变为可用（自动准备失败）');
+      if (document.getElementById('filePill').classList.contains('hidden')) {
+        problems.push('输入文字后没有显示文件信息框');
+      } else if (!/^text-.*\.txt$/.test(document.getElementById('fileName').textContent)) {
+        problems.push('文字载荷的文件名不对: ' + document.getElementById('fileName').textContent);
+      }
+    }
 
     return problems;
   })()`;

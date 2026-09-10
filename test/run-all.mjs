@@ -22,6 +22,7 @@ const SUITE = [
   { name: 'real app modules: send.js + cimbar-worker.js', file: 'app-roundtrip.mjs', args: ['--mode', '68', '--size', '61440', '--frames', '40'] },
   { name: 'UI wiring, tabs, controls, no console errors', file: 'ui-smoke.mjs', args: [] },
   { name: 'regression: changing mode/compression mid-broadcast', file: 'reconfigure.mjs', args: [] },
+  { name: 'service worker: update on one reload + offline open', file: 'sw-update.mjs', args: [] },
   { name: 'web assets synced into the iOS bundle', file: 'sync-check.mjs', args: [] },
   { name: 'native Swift sources type-check', file: 'swift-typecheck.mjs', args: [] },
   ...(quick ? [] : [

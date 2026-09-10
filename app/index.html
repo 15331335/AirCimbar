@@ -76,10 +76,18 @@
 
       <div id="textBox" class="hidden" style="margin-top:12px">
         <textarea id="textInput" placeholder="在此粘贴要传输的文本…"></textarea>
-        <button class="btn primary" id="btnSendText" style="margin-top:10px">广播这段文字</button>
+        <p class="hint" style="margin-top:8px">输入后会自动准备好，再用下面的「开始广播」发送 —— 和选文件是同一套流程。</p>
       </div>
 
       <p class="hint">单个文件上限约 33&nbsp;MB —— 喷泉码要求整个文件常驻内存。</p>
+    </div>
+
+    <div class="btn-stack" style="margin-bottom:14px">
+      <button class="btn primary" id="btnBroadcast" disabled>开始广播</button>
+      <div class="btn-stack two">
+        <button class="btn" id="btnPause" disabled>暂停</button>
+        <button class="btn danger" id="btnStop" disabled>停止</button>
+      </div>
     </div>
 
     <div class="card">
@@ -103,9 +111,9 @@
 
       <div class="row">
         <span class="label">帧率</span>
-        <span class="value" id="fpsVal">15 fps</span>
+        <span class="value" id="fpsVal">24 fps</span>
       </div>
-      <input type="range" id="fpsRange" min="1" max="30" step="1" value="15">
+      <input type="range" id="fpsRange" min="1" max="30" step="1" value="24">
 
       <div class="row" style="margin-top:8px">
         <span class="label">zstd 压缩等级</span>
@@ -118,14 +126,6 @@
         <div><b id="stBytesPerFrame">7.3 KB</b><span>每帧</span></div>
         <div><b id="stRate">110 KB/s</b><span>理论速率</span></div>
         <div><b id="stFrames">0</b><span>已发帧</span></div>
-      </div>
-    </div>
-
-    <div class="btn-stack" style="margin-bottom:14px">
-      <button class="btn primary" id="btnBroadcast" disabled>开始广播</button>
-      <div class="btn-stack two">
-        <button class="btn" id="btnPause" disabled>暂停</button>
-        <button class="btn danger" id="btnStop" disabled>停止</button>
       </div>
     </div>
 
@@ -240,7 +240,7 @@
         <span class="sz" id="importMeta">—</span>
       </div>
 
-      <button class="btn" id="btnPickVideo" style="margin-top:14px">选择视频或图片</button>
+      <button class="btn" id="btnPickVideo">选择视频或图片</button>
       <input type="file" id="importInput" accept="video/*,image/*" class="hidden">
     </div>
 

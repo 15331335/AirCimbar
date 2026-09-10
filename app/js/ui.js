@@ -270,6 +270,8 @@
   $('btnClearFile').addEventListener('click', function () {
     sender.clear();
     $('fileInput').value = '';
+    $('textInput').value = '';
+    lastPreparedText = null;
     $('stagePlaceholder').classList.remove('hidden');
     setStatus('就绪', false);
   });
@@ -280,15 +282,41 @@
     if (!box.classList.contains('hidden')) $('textInput').focus();
   });
 
-  $('btnSendText').addEventListener('click', function () {
+  /* Text is prepared automatically, the same way picking a file does, so there
+     is exactly one way to start sending. The old separate "广播这段文字"
+     button both duplicated 开始广播 and was mislabelled — it only prepared. */
+  var textTimer = null;
+  var lastPreparedText = null;
+
+  function prepareText() {
     var text = $('textInput').value;
-    if (!text) { A.toast('请输入文字'); return; }
-    var bytes = new TextEncoder().encode(text);
-    var blob = new Blob([bytes], { type: 'text/plain;charset=utf-8' });
+    if (text === lastPreparedText) return;
+
+    if (!text) {
+      lastPreparedText = null;
+      if (sender.state.fileName.indexOf('text-') === 0) {
+        sender.clear();
+        $('stagePlaceholder').classList.remove('hidden');
+        setStatus('就绪', false);
+      }
+      return;
+    }
+
+    var blob = new Blob([new TextEncoder().encode(text)], { type: 'text/plain;charset=utf-8' });
     var stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
-    setStatus('正在压缩并准备…', false);
+    setStatus('正在准备文字…', false);
     sender.prepare(blob, 'text-' + stamp + '.txt')
+      .then(function () { lastPreparedText = text; })
       .catch(function (e) { A.toast(String(e.message || e), 5000); setStatus('准备失败', false); });
+  }
+
+  $('textInput').addEventListener('input', function () {
+    clearTimeout(textTimer);
+    textTimer = setTimeout(prepareText, 500);   // wait for a pause in typing
+  });
+  $('textInput').addEventListener('blur', function () {
+    clearTimeout(textTimer);
+    prepareText();
   });
 
   $('btnBroadcast').addEventListener('click', function () {
@@ -571,7 +599,11 @@
   });
 
   /* ================================================================= PWA */
-  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  /* Service workers need a secure context. Testing isSecureContext rather than
+     the scheme also covers http://127.0.0.1 and http://localhost, which
+     browsers treat as trustworthy — and which is how the test suite serves the
+     app. Plain http on a LAN address is still correctly skipped. */
+  if ('serviceWorker' in navigator && window.isSecureContext) {
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('sw.js').catch(function () { });
     });

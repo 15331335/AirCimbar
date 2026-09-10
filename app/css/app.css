@@ -194,6 +194,11 @@ input[type="range"]:disabled { opacity: .45; }
   display: flex; align-items: center; gap: 10px; padding: 12px 14px;
   background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
   border-radius: var(--radius-sm); font-size: 13.5px;
+  /* Without this the pill sits flush against whatever follows it — the picker
+     buttons in the send panel, the video button in the import panel. 14px is
+     the same step the rest of the layout uses, and adjacent margins collapse
+     so the two panels stay consistent. */
+  margin-bottom: 14px;
 }
 .filepill .nm { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .filepill .sz { color: var(--text-dim); font-family: var(--mono); font-size: 12px; flex: none; }
@@ -258,13 +263,27 @@ textarea {
 
 .hidden { display: none !important; }
 
+/* The hidden state must clear the viewport at *any* height. Sliding by a
+   percentage of the element's own height fails when the toast is empty: a
+   short (or zero-height) box barely moves and leaves a sliver of the black
+   pill parked above the bottom edge. Offset by 100% + a fixed margin instead,
+   and hide it outright so it can never be seen or tapped. */
 .toast {
-  position: fixed; left: 50%; bottom: calc(22px + var(--safe-b)); transform: translate(-50%, 140%);
+  position: fixed; left: 50%; bottom: calc(22px + var(--safe-b));
+  transform: translate(-50%, calc(100% + 48px));
+  opacity: 0; visibility: hidden; pointer-events: none;
   background: #0f172a; color: #fff; padding: 12px 18px; border-radius: 999px;
   font-size: 13.5px; font-weight: 600; z-index: 90; max-width: 88vw; text-align: center;
-  transition: transform .28s cubic-bezier(.2, .9, .3, 1.2); box-shadow: 0 10px 30px rgb(0 0 0 / .3);
+  box-shadow: 0 10px 30px rgb(0 0 0 / .3);
+  transition: transform .28s cubic-bezier(.2, .9, .3, 1.2), opacity .2s ease, visibility 0s linear .28s;
 }
-.toast.show { transform: translate(-50%, 0); }
+.toast.show {
+  transform: translate(-50%, 0);
+  opacity: 1; visibility: visible; pointer-events: auto;
+  transition: transform .28s cubic-bezier(.2, .9, .3, 1.2), opacity .18s ease, visibility 0s;
+}
+/* nothing to say, nothing to show */
+.toast:empty { display: none; }
 
 .footnote {
   text-align: center; font-size: 11.5px; color: var(--text-faint);

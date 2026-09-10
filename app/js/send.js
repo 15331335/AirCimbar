@@ -23,7 +23,7 @@
        large displays, Bu is what works phone-to-phone. */
     modeId: 66,
     compression: 16,
-    fps: 15,
+    fps: 24,
 
     blob: null,
     fileName: '',
