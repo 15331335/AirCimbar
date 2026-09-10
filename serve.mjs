@@ -108,6 +108,15 @@ function handler(req, res) {
     return res.end(body);
   }
 
+  /* iOS probes these at the site root regardless of the <link rel=...> tag;
+     without them the log fills with confusing 404s during "Add to Home Screen". */
+  const ALIASES = {
+    '/apple-touch-icon.png': '/icons/apple-touch-icon.png',
+    '/apple-touch-icon-precomposed.png': '/icons/apple-touch-icon.png',
+    '/favicon.ico': '/icons/icon-192.png',
+  };
+  if (ALIASES[rel]) rel = ALIASES[rel];
+
   if (rel === '/') rel = '/index.html';
 
   const file = path.normalize(path.join(appDir, rel));
