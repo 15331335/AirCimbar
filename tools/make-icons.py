@@ -63,29 +63,37 @@ def rng(seed):
     return nxt
 
 
-def render(size, rounded=True, inset=0.0):
+def render(size, rounded=True, inset=0.0, cells=4, seed=20260910):
+    """A bold cimbar-style mark.
+
+    Deliberately *not* a faithful 8x8 code: at the ~60pt a home screen icon is
+    actually displayed at, 64 dithered cells collapse into visual noise. This
+    uses a 4x4 grid of solid colour on a dark field, with the format's three
+    corner anchors — recognisably a cimbar code, and still legible when small.
+    """
     px = bytearray(size * size * 4)
     radius = size * 0.22 if rounded else 0.0
     pad = size * inset
 
-    # grid geometry: 8x8 tiles with a 1-tile margin
-    cells = 8
     margin = size * 0.13 + pad
     inner = size - 2 * margin
     cell = inner / cells
 
-    nxt = rng(20260910)
-    tiles = [[(nxt() >> 8) % 4 for _ in range(cells)] for _ in range(cells)]
-
-    # three corner anchors, like the real format (TL, TR, BL)
-    anchors = {(0, 0), (0, cells - 1), (cells - 1, 0)}
+    nxt = rng(seed)
+    # a fixed, hand-picked arrangement: random colour noise reads as clutter
+    pattern = [
+        [0, 1, 2, 3],
+        [3, 2, 0, 1],
+        [1, 3, 3, 0],
+        [2, 0, 1, 2],
+    ]
+    anchors = {(0, 0), (cells - 1, 0), (0, cells - 1)}   # TL, TR, BL
 
     for y in range(size):
         for x in range(size):
             i = (y * size + x) * 4
             fx, fy = x + 0.5, y + 0.5
 
-            # rounded-rect coverage
             if rounded:
                 cx = min(max(fx, radius), size - radius)
                 cy = min(max(fy, radius), size - radius)
@@ -101,31 +109,17 @@ def render(size, rounded=True, inset=0.0):
             if not (0 <= gx < cells and 0 <= gy < cells):
                 continue
 
-            # tile body, with a small gutter between tiles
             ox = (fx - margin) - gx * cell
             oy = (fy - margin) - gy * cell
-            gutter = cell * 0.14
+            gutter = cell * 0.10
             if ox < gutter or oy < gutter or ox > cell - gutter or oy > cell - gutter:
                 continue
 
             if (gx, gy) in anchors:
-                # solid anchor block
                 px[i], px[i + 1], px[i + 2] = ANCHOR
-                continue
-
-            # stipple the tile into a 4x4 sub-cell pattern so it reads as a
-            # data tile rather than a flat swatch
-            v = tiles[gx][gy]
-            sx = int((ox - gutter) / ((cell - 2 * gutter) / 4))
-            sy = int((oy - gutter) / ((cell - 2 * gutter) / 4))
-            sx = max(0, min(3, sx))
-            sy = max(0, min(3, sy))
-            on = ((v + sx * 3 + sy * 5) % 4) < 2
-            if not on:
-                continue
-
-            r, g, b = PALETTE[v]
-            px[i], px[i + 1], px[i + 2] = r, g, b
+            else:
+                r, g, b = PALETTE[pattern[gy][gx]]
+                px[i], px[i + 1], px[i + 2] = r, g, b
 
     return px
 
@@ -133,19 +127,32 @@ def render(size, rounded=True, inset=0.0):
 def main():
     os.makedirs(OUT, exist_ok=True)
 
-    def save(name, size, rounded, inset):
-        write_png(os.path.join(OUT, name), size, size, render(size, rounded, inset))
-        print('wrote', name, f'{size}x{size}')
+    def save(path, size, rounded, inset, alpha=True):
+        write_png(path, size, size, render(size, rounded, inset), alpha=alpha)
+        print('wrote', os.path.relpath(path, os.path.dirname(OUT)), f'{size}x{size}')
 
-    save('icon-192.png', 192, rounded=True, inset=0.0)
-    save('icon-512.png', 512, rounded=True, inset=0.0)
-    save('icon-maskable-512.png', 512, rounded=False, inset=0.10)
-    # iOS masks its own corners, so ship an opaque square
-    save('apple-touch-icon.png', 180, rounded=False, inset=0.06)
+    # ---- PWA / manifest ----
+    save(os.path.join(OUT, 'icon-192.png'), 192, True, 0.0)
+    save(os.path.join(OUT, 'icon-512.png'), 512, True, 0.0)
+    save(os.path.join(OUT, 'icon-maskable-512.png'), 512, False, 0.10)
+
+    # ---- iOS home screen ----
+    # iOS probes /apple-touch-icon.png and /apple-touch-icon-precomposed.png at
+    # the *root* of the site before falling back to the link tag, and shows a
+    # generic letter tile when it finds nothing usable. So ship real files at
+    # the root as well as the sized set under icons/.
+    app_root = os.path.dirname(OUT)
+    # Apple asks for no alpha channel in home screen icons, and iOS applies its
+    # own corner mask, so these are square and opaque RGB.
+    for name, size in (('apple-touch-icon.png', 180),
+                       ('apple-touch-icon-precomposed.png', 180)):
+        save(os.path.join(app_root, name), size, False, 0.04, alpha=False)
+    for size in (120, 152, 167, 180, 192):
+        save(os.path.join(OUT, f'apple-touch-icon-{size}.png'), size, False, 0.04, alpha=False)
+    print('wrote', 'app/icons/apple-touch-icon-{120,152,167,180,192}.png')
 
     # ---- native app icon (Xcode asset catalog) ----
-    # Apple rejects app icons with an alpha channel, hence alpha=False.
-    # OUT is <repo>/app/icons, so the repo root is two levels up
+    # Apple rejects app icons carrying an alpha channel, hence alpha=False.
     repo_root = os.path.dirname(os.path.dirname(OUT))
     native_set = os.path.join(repo_root, 'native', 'AirCimbar',
                               'Assets.xcassets', 'AppIcon.appiconset')

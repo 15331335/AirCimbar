@@ -24,7 +24,7 @@
 /* Names the cache and drives purging of older ones. Bumping it is no longer
    required for updates to be picked up — network-first handles that — but it
    remains the cleanest way to drop everything at once. */
-var VERSION = 'aircimbar-v4';
+var VERSION = 'aircimbar-v5';
 
 var ASSETS = [
   './',
@@ -39,8 +39,8 @@ var ASSETS = [
   './js/cimbar-worker.js',
   './vendor/cimbar_js.js',
   './vendor/cimbar_js.wasm',
+  './apple-touch-icon.png',
   './icons/icon-192.png',
-  './icons/apple-touch-icon.png',
 ];
 
 self.addEventListener('install', function (e) {

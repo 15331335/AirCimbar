@@ -23,6 +23,7 @@ const SUITE = [
   { name: 'UI wiring, tabs, controls, no console errors', file: 'ui-smoke.mjs', args: [] },
   { name: 'regression: changing mode/compression mid-broadcast', file: 'reconfigure.mjs', args: [] },
   { name: 'service worker: update on one reload + offline open', file: 'sw-update.mjs', args: [] },
+  { name: 'asset integrity: icons, manifest, precache list', file: 'assets.mjs', args: [] },
   { name: 'web assets synced into the iOS bundle', file: 'sync-check.mjs', args: [] },
   { name: 'native Swift sources type-check', file: 'swift-typecheck.mjs', args: [] },
   ...(quick ? [] : [

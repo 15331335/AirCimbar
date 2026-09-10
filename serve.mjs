@@ -111,8 +111,9 @@ function handler(req, res) {
   /* iOS probes these at the site root regardless of the <link rel=...> tag;
      without them the log fills with confusing 404s during "Add to Home Screen". */
   const ALIASES = {
-    '/apple-touch-icon.png': '/icons/apple-touch-icon.png',
-    '/apple-touch-icon-precomposed.png': '/icons/apple-touch-icon.png',
+    /* /apple-touch-icon.png and -precomposed.png are real files at the web
+       root (iOS probes them before honouring the link tag), so only the
+       favicon still needs mapping. */
     '/favicon.ico': '/icons/icon-192.png',
   };
   if (ALIASES[rel]) rel = ALIASES[rel];
